@@ -1,6 +1,5 @@
 {
     "token_dim": 60,
-    "hidden_dim": 64,
     "feat_dim": 1,
     "dp_dim": 4,
     "arg_dim": 4,
@@ -9,8 +8,9 @@
     "lstm_input_dim": 100,
     "lstm_dim": 64,
     "lstm_depth": 2,
+    "hidden_dim": 64,
     "position_feature_dim": 5,
-    "num_epochs": 25,
+    "num_epochs": 10,
     "learning_rate": 0.001,
     "dropout_rate": 0.01,
     "pretrained_embedding_dim": 300,

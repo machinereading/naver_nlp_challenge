@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[1]:
+# In[3]:
 
 
 import json
@@ -37,10 +37,10 @@ import eval_srl
 
 # # Option
 
-# In[8]:
+# In[4]:
 
 
-model_dir = './result/model-morp-lstm'
+model_dir = './result/model-morp-sum'
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 model_path = model_dir+'/model.pt'
@@ -48,7 +48,7 @@ model_path = model_dir+'/model.pt'
 dev_sent = 500
 
 
-# In[4]:
+# In[5]:
 
 
 from datetime import datetime
@@ -56,7 +56,7 @@ start_time = datetime.now()
 today = start_time.strftime('%Y-%m-%d')
 
 
-# In[5]:
+# In[6]:
 
 
 # load data
@@ -64,7 +64,7 @@ data = read_data.load_trn_data()
 trn_conll = read_data.load_trn_nlp()
 
 
-# In[6]:
+# In[7]:
 
 
 # input data
@@ -96,14 +96,14 @@ def get_input_data(data):
 input_data = get_input_data(data)
 
 
-# In[9]:
+# In[8]:
 
 
 div = len(input_data) - dev_sent
 
 dev = input_data[div:]
 trn = input_data[:div]
-gold_file = './morp_lstm_dev.data'
+gold_file = './dev.data'
 print('')
 print('### dev data:', len(dev), 'sents')
 
@@ -113,9 +113,17 @@ with open(gold_file,'w') as f:
         dev_list += i[2]
         
     json.dump(dev_list, f)
+    
+gold_to_see = './dev.tosee'
+with open(gold_to_see,'w') as f:
+    dev_list = []
+    for i in dev:
+        dev_list.append(i[2])
+        
+    json.dump(dev_list, f)
 
 
-# In[53]:
+# In[ ]:
 
 
 def prepare_idx():
@@ -149,7 +157,7 @@ print('MORP_VOCAB_SIZE:', MORP_VOCAB_SIZE)
 
 # # Load Word2Vec
 
-# In[25]:
+# In[ ]:
 
 
 from gensim.models import Word2Vec
@@ -159,7 +167,7 @@ wv_model = KeyedVectors.load_word2vec_format("./wordembedding/100_dim_3_window_5
 print('... is done')
 
 
-# In[77]:
+# In[ ]:
 
 
 def get_word2vec(morp):
@@ -180,12 +188,12 @@ def get_word2vec(morp):
 
 # # Configuration
 
-# In[89]:
+# In[ ]:
 
 
 configuration = {'token_dim': 60,
                  'hidden_dim': 64,
-                 'feat_dim': 2,
+                 'feat_dim': 1,
                  'dp_dim': 4,
                  'arg_dim': 4,
                  'lu_pos_dim': 5,
@@ -195,7 +203,7 @@ configuration = {'token_dim': 60,
                  'lstm_depth': 2,
                  'hidden_dim': 64,
                  'position_feature_dim': 5,
-                 'num_epochs': 13,
+                 'num_epochs': 25,
                  'learning_rate': 0.001,
                  'dropout_rate': 0.01,
                  'pretrained_embedding_dim': 300,
@@ -222,7 +230,7 @@ with open(model_dir+'/config.json', 'w') as f:
     json.dump(configuration, f, ensure_ascii=False, indent=4)
 
 
-# In[14]:
+# In[ ]:
 
 
 def get_pred_idxs(conll):
@@ -238,7 +246,7 @@ def get_pred_idxs(conll):
     return result
 
 
-# In[15]:
+# In[ ]:
 
 
 def get_arg_idxs(pred_idx, conll):
@@ -246,17 +254,14 @@ def get_arg_idxs(pred_idx, conll):
     for i in range(len(conll)):
         tok = conll[i]
         if int(tok[8]) == pred_idx:
-            
-            arg_idxs[i] = 1
-            
-#             arg_pos = tok[-1]
-#             if arg_pos[:2] == 'NP':
-#                 arg_idxs[i] = 1
+            arg_pos = tok[-1]
+            if arg_pos[:2] == 'NP':
+                arg_idxs[i] = 1
                 
     return arg_idxs
 
 
-# In[16]:
+# In[ ]:
 
 
 def get_feature(pred_idxs, conll):
@@ -266,19 +271,19 @@ def get_feature(pred_idxs, conll):
         features = []
         for j in range(len(i)):
             pred_idx = i[j]
-            if pred_idx == 1:
-                arg_idxs = get_arg_idxs(j, conll)
+#             if pred_idx == 1:
+#                 arg_idxs = get_arg_idxs(j, conll)
         for j in range(len(i)):
             feature = []                
             feature.append(i[j])
-            feature.append(arg_idxs[j])
+#             feature.append(arg_idxs[j])
             features.append(feature)                
         result.append(features)
         
     return result
 
 
-# In[17]:
+# In[ ]:
 
 
 def prepare_sequence(seq, to_ix):
@@ -293,7 +298,7 @@ def prepare_sequence(seq, to_ix):
     return torch.tensor(idxs).cuda()
 
 
-# In[18]:
+# In[ ]:
 
 
 def get_dps(conll):
@@ -304,7 +309,7 @@ def get_dps(conll):
     return dps
 
 
-# In[81]:
+# In[ ]:
 
 
 def get_sentence_vec(tokens, conll):
@@ -319,7 +324,7 @@ def get_sentence_vec(tokens, conll):
 
 # # dev eval
 
-# In[142]:
+# In[ ]:
 
 
 def get_labels_by_tensor(t):
@@ -349,7 +354,10 @@ def eval_dev(my_model):
         n = 0    
 
         pred_file = model_dir+'/dev.result'
-        pred_result = open(pred_file,'w')    
+        pred_result = open(pred_file,'w')
+        
+        with open(gold_to_see) as f:
+            gold_anno = json.load(f)
 
         for s_idx in range(len(dev)):      
             tokens, args = dev[s_idx][1], dev[s_idx][2]
@@ -386,9 +394,7 @@ def eval_dev(my_model):
                     if label == '-':
                         pass
                     else:
-                        if pred[idx] == '-':
-                            pred[dix] = label
-#                         pred[idx] = label
+                        pred[idx] = label
 
             pred_result.write(str(pred)+'\n')
             
@@ -398,16 +404,19 @@ def eval_dev(my_model):
             annotation.append(pred)
 
             result.append(annotation)
-            
+     
+    
     with open(model_dir+'/dev-result.tosee','w') as f:
         for i in result:
             for j in i:
                 f.write(str(j)+'\n')
             f.write('\n')
- 
+    
     pred_result.close()
     with open(gold_file,'r') as f:
         gold = json.load(f)
+        
+    
     pred = eval_srl.read_prediction(pred_file)
     f1 = eval_srl.evaluate_from_list(pred, gold)
       
@@ -416,7 +425,7 @@ def eval_dev(my_model):
 
 # # Model
 
-# In[140]:
+# In[ ]:
 
 
 class LSTMTagger(nn.Module):
@@ -427,19 +436,19 @@ class LSTMTagger(nn.Module):
         self.dp_embeddings = nn.Embedding(DP_VOCAB_SIZE, DPDIM)
         
         #LSTM layer        
-        self.lstm_morp = nn.LSTM(LSTMINPDIM, HIDDENDIM//2, bidirectional=True, num_layers=LSTMDEPTH, dropout=DROPOUT_RATE)
-        self.hidden_lstm_morp = self.init_hidden_lstm_morp()
+#         self.lstm_morp = nn.LSTM(LSTMINPDIM, HIDDENDIM//2, bidirectional=True, num_layers=LSTMDEPTH, dropout=DROPOUT_RATE)
+#         self.hidden_lstm_morp = self.init_hidden_lstm_morp()
         
-        self.lstm_tok = nn.LSTM(HIDDENDIM+DPDIM+FEATDIM, HIDDENDIM//2, bidirectional=True, num_layers=LSTMDEPTH, dropout=DROPOUT_RATE)
+        self.lstm_tok = nn.LSTM(LSTMINPDIM+DPDIM+FEATDIM, HIDDENDIM//2, bidirectional=True, num_layers=LSTMDEPTH, dropout=DROPOUT_RATE)
         self.hidden_lstm_tok = self.init_hidden_lstm_tok()
         
         # Linear
         self.hidden2tag = nn.Linear(HIDDENDIM, tagset_size)
               
 
-    def init_hidden_lstm_morp(self):
-        return (torch.zeros(4, 1, HIDDENDIM//2).cuda(),
-            torch.zeros(4, 1, HIDDENDIM//2).cuda())
+#     def init_hidden_lstm_morp(self):
+#         return (torch.zeros(4, 1, HIDDENDIM//2).cuda(),
+#             torch.zeros(4, 1, HIDDENDIM//2).cuda())
     
     def init_hidden_lstm_tok(self):
         return (torch.zeros(4, 1, HIDDENDIM//2).cuda(),
@@ -453,21 +462,15 @@ class LSTMTagger(nn.Module):
         tok_vectors = []
         for morps in input_sent:
             wes = []
+            we = torch.zeros(100).cuda()
             for morp in morps:
-                we = get_word2vec(morp)
-                wes.append(we)
+                we += get_word2vec(morp)
+            tok_vectors.append(we)
 
-            input_vec = torch.stack(wes)
-            input_embs_1 = input_vec.view(len(input_vec), 1, -1)
-            
-            lstm_out_tok, self.hidden_lstm_morp = self.lstm_morp(
-                input_embs_1, self.hidden_lstm_morp)
-
-            tok_vectors.append(lstm_out_tok[-1])
         tok_vec = torch.stack(tok_vectors)
         tok_vec = tok_vec.view(len(tok_vec), -1)    
         
-#         LSTM layer 2 (token to token)
+#         LSTM layer
         input_embs = torch.cat( (tok_vec, dp_embs, feat_vectors), 1)
         input_embs_2 = input_embs.view(len(input_embs), 1, -1)
 
@@ -477,13 +480,13 @@ class LSTMTagger(nn.Module):
         # Linear
         tag_space = self.hidden2tag(lstm_out_tok.view(len(input_embs_2),-1))  
 
-#         for t_idx in range(len(tag_space)):
-#             t = tag_space[t_idx]
-#             m = mask[t_idx]
-#             if m > 0:
-#                 pass
-#             else:
-#                 t[-1] = 1
+        for t_idx in range(len(tag_space)):
+            t = tag_space[t_idx]
+            m = mask[t_idx]
+            if m > 0:
+                pass
+            else:
+                t[-1] = 1
         
         tag_space = F.relu(tag_space)        
         softmax = nn.Softmax(dim=1)
@@ -491,7 +494,7 @@ class LSTMTagger(nn.Module):
         return tag_scores       
 
 
-# In[143]:
+# In[ ]:
 
 
 srl_model = LSTMTagger(ARG_VOCAB_SIZE)
@@ -536,8 +539,7 @@ for epoch in range(NUM_EPOCHS):
             mask = torch.tensor(arg_idxs).cuda()
             mask = mask.float()
             
-            srl_model.zero_grad()
-            srl_model.hidden_lstm_morp = srl_model.init_hidden_lstm_morp()            
+            srl_model.zero_grad()         
             srl_model.hidden_lstm_tok = srl_model.init_hidden_lstm_tok()
 
             tag_scores = srl_model(input_sent, dp_in, feat_vectors, mask)

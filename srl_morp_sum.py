@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[3]:
+# In[1]:
 
 
 import json
@@ -37,7 +37,7 @@ import eval_srl
 
 # # Option
 
-# In[4]:
+# In[2]:
 
 
 model_dir = './result/model-morp-sum'
@@ -48,7 +48,7 @@ model_path = model_dir+'/model.pt'
 dev_sent = 500
 
 
-# In[5]:
+# In[3]:
 
 
 from datetime import datetime
@@ -56,7 +56,7 @@ start_time = datetime.now()
 today = start_time.strftime('%Y-%m-%d')
 
 
-# In[6]:
+# In[4]:
 
 
 # load data
@@ -64,7 +64,7 @@ data = read_data.load_trn_data()
 trn_conll = read_data.load_trn_nlp()
 
 
-# In[7]:
+# In[5]:
 
 
 # input data
@@ -96,7 +96,7 @@ def get_input_data(data):
 input_data = get_input_data(data)
 
 
-# In[8]:
+# In[6]:
 
 
 div = len(input_data) - dev_sent
@@ -123,7 +123,7 @@ with open(gold_to_see,'w') as f:
     json.dump(dev_list, f)
 
 
-# In[ ]:
+# In[7]:
 
 
 def prepare_idx():
@@ -157,7 +157,7 @@ print('MORP_VOCAB_SIZE:', MORP_VOCAB_SIZE)
 
 # # Load Word2Vec
 
-# In[ ]:
+# In[8]:
 
 
 from gensim.models import Word2Vec
@@ -167,7 +167,7 @@ wv_model = KeyedVectors.load_word2vec_format("./wordembedding/100_dim_3_window_5
 print('... is done')
 
 
-# In[ ]:
+# In[9]:
 
 
 def get_word2vec(morp):
@@ -188,11 +188,10 @@ def get_word2vec(morp):
 
 # # Configuration
 
-# In[ ]:
+# In[10]:
 
 
 configuration = {'token_dim': 60,
-                 'hidden_dim': 64,
                  'feat_dim': 1,
                  'dp_dim': 4,
                  'arg_dim': 4,
@@ -203,7 +202,7 @@ configuration = {'token_dim': 60,
                  'lstm_depth': 2,
                  'hidden_dim': 64,
                  'position_feature_dim': 5,
-                 'num_epochs': 25,
+                 'num_epochs': 10,
                  'learning_rate': 0.001,
                  'dropout_rate': 0.01,
                  'pretrained_embedding_dim': 300,
@@ -230,7 +229,7 @@ with open(model_dir+'/config.json', 'w') as f:
     json.dump(configuration, f, ensure_ascii=False, indent=4)
 
 
-# In[ ]:
+# In[11]:
 
 
 def get_pred_idxs(conll):
@@ -246,7 +245,7 @@ def get_pred_idxs(conll):
     return result
 
 
-# In[ ]:
+# In[12]:
 
 
 def get_arg_idxs(pred_idx, conll):
@@ -254,6 +253,9 @@ def get_arg_idxs(pred_idx, conll):
     for i in range(len(conll)):
         tok = conll[i]
         if int(tok[8]) == pred_idx:
+            
+#             arg_idxs[i] = 1
+            
             arg_pos = tok[-1]
             if arg_pos[:2] == 'NP':
                 arg_idxs[i] = 1
@@ -261,7 +263,7 @@ def get_arg_idxs(pred_idx, conll):
     return arg_idxs
 
 
-# In[ ]:
+# In[13]:
 
 
 def get_feature(pred_idxs, conll):
@@ -283,7 +285,7 @@ def get_feature(pred_idxs, conll):
     return result
 
 
-# In[ ]:
+# In[14]:
 
 
 def prepare_sequence(seq, to_ix):
@@ -298,7 +300,7 @@ def prepare_sequence(seq, to_ix):
     return torch.tensor(idxs).cuda()
 
 
-# In[ ]:
+# In[15]:
 
 
 def get_dps(conll):
@@ -309,7 +311,7 @@ def get_dps(conll):
     return dps
 
 
-# In[ ]:
+# In[16]:
 
 
 def get_sentence_vec(tokens, conll):
@@ -324,7 +326,7 @@ def get_sentence_vec(tokens, conll):
 
 # # dev eval
 
-# In[ ]:
+# In[23]:
 
 
 def get_labels_by_tensor(t):
@@ -388,13 +390,20 @@ def eval_dev(my_model):
 
                 tag_scores = srl_model(input_sent, dp_in, feat_vectors, mask)
                 labels, score = get_labels_by_tensor(tag_scores)
-
+                
                 for idx in range(len(labels)):
-                    label = labels[idx]
+                    if arg_idxs[idx] == 1:
+                        label = labels[idx]
+                    else:
+                        label = '-'
+                        
                     if label == '-':
                         pass
                     else:
-                        pred[idx] = label
+                        if pred[idx] == '-':
+                            pred[idx] = label
+                        
+#                         pred[idx] = label
 
             pred_result.write(str(pred)+'\n')
             
@@ -425,7 +434,7 @@ def eval_dev(my_model):
 
 # # Model
 
-# In[ ]:
+# In[18]:
 
 
 class LSTMTagger(nn.Module):
@@ -494,7 +503,7 @@ class LSTMTagger(nn.Module):
         return tag_scores       
 
 
-# In[ ]:
+# In[19]:
 
 
 srl_model = LSTMTagger(ARG_VOCAB_SIZE)
@@ -555,12 +564,16 @@ for epoch in range(NUM_EPOCHS):
         if n_of_sent % 100 == 0:
             print('Epoch [{}/{}], Sent [{}/{}], Loss: {:.4f}' 
                    .format(epoch+1, NUM_EPOCHS, n_of_sent, total_sent, loss.item()))
-        
+
+#         if n_of_sent > 1000:
+#             break
+            
 #         break
         
     # EPOCH 마다 dev에 대한 성능 평가
 
-        
+#     torch.save(srl_model, model_path)
+    
     f1 = eval_dev(srl_model)
     print('Epoch [{}/{}], F1: {:4f}' 
                    .format(epoch+1, NUM_EPOCHS, f1))
@@ -572,7 +585,7 @@ for epoch in range(NUM_EPOCHS):
     print('Duration: {}'.format(end_time - start_time))
     print('')
     
-    torch.save(srl_model, model_path)
+
     
 #     break
        

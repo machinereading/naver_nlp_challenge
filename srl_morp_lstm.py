@@ -1,7 +1,7 @@
 
 # coding: utf-8
 
-# In[1]:
+# In[5]:
 
 
 import json
@@ -37,7 +37,7 @@ import eval_srl
 
 # # Option
 
-# In[8]:
+# In[6]:
 
 
 model_dir = './result/model-morp-lstm'
@@ -48,7 +48,7 @@ model_path = model_dir+'/model.pt'
 dev_sent = 500
 
 
-# In[4]:
+# In[7]:
 
 
 from datetime import datetime
@@ -56,7 +56,7 @@ start_time = datetime.now()
 today = start_time.strftime('%Y-%m-%d')
 
 
-# In[5]:
+# In[8]:
 
 
 # load data
@@ -64,7 +64,7 @@ data = read_data.load_trn_data()
 trn_conll = read_data.load_trn_nlp()
 
 
-# In[6]:
+# In[9]:
 
 
 # input data
@@ -96,14 +96,14 @@ def get_input_data(data):
 input_data = get_input_data(data)
 
 
-# In[9]:
+# In[10]:
 
 
 div = len(input_data) - dev_sent
 
 dev = input_data[div:]
 trn = input_data[:div]
-gold_file = './morp_lstm_dev.data'
+gold_file = './dev.data'
 print('')
 print('### dev data:', len(dev), 'sents')
 
@@ -111,6 +111,14 @@ with open(gold_file,'w') as f:
     dev_list = []
     for i in dev:
         dev_list += i[2]
+        
+    json.dump(dev_list, f)
+    
+gold_to_see = './dev.tosee'
+with open(gold_to_see,'w') as f:
+    dev_list = []
+    for i in dev:
+        dev_list.append(i[2])
         
     json.dump(dev_list, f)
 
@@ -149,7 +157,7 @@ print('MORP_VOCAB_SIZE:', MORP_VOCAB_SIZE)
 
 # # Load Word2Vec
 
-# In[25]:
+# In[3]:
 
 
 from gensim.models import Word2Vec
@@ -159,7 +167,7 @@ wv_model = KeyedVectors.load_word2vec_format("./wordembedding/100_dim_3_window_5
 print('... is done')
 
 
-# In[77]:
+# In[2]:
 
 
 def get_word2vec(morp):
@@ -184,7 +192,6 @@ def get_word2vec(morp):
 
 
 configuration = {'token_dim': 60,
-                 'hidden_dim': 64,
                  'feat_dim': 1,
                  'dp_dim': 4,
                  'arg_dim': 4,
@@ -195,7 +202,7 @@ configuration = {'token_dim': 60,
                  'lstm_depth': 2,
                  'hidden_dim': 64,
                  'position_feature_dim': 5,
-                 'num_epochs': 13,
+                 'num_epochs': 15,
                  'learning_rate': 0.001,
                  'dropout_rate': 0.01,
                  'pretrained_embedding_dim': 300,
@@ -246,6 +253,9 @@ def get_arg_idxs(pred_idx, conll):
     for i in range(len(conll)):
         tok = conll[i]
         if int(tok[8]) == pred_idx:
+            
+#             arg_idxs[i] = 1
+            
             arg_pos = tok[-1]
             if arg_pos[:2] == 'NP':
                 arg_idxs[i] = 1
@@ -346,7 +356,10 @@ def eval_dev(my_model):
         n = 0    
 
         pred_file = model_dir+'/dev.result'
-        pred_result = open(pred_file,'w')    
+        pred_result = open(pred_file,'w')  
+        
+        with open(gold_to_see) as f:
+            gold_anno = json.load(f)
 
         for s_idx in range(len(dev)):      
             tokens, args = dev[s_idx][1], dev[s_idx][2]
@@ -379,11 +392,18 @@ def eval_dev(my_model):
                 labels, score = get_labels_by_tensor(tag_scores)
 
                 for idx in range(len(labels)):
+                    if arg_idxs[idx] == 1:
+                        label = labels[idx]
+                    else:
+                        label = '-'
+                    
                     label = labels[idx]
                     if label == '-':
                         pass
                     else:
-                        pred[idx] = label
+                        if pred[idx] == '-':
+                            pred[idx] = label
+#                         pred[idx] = label
 
             pred_result.write(str(pred)+'\n')
             
@@ -548,11 +568,15 @@ for epoch in range(NUM_EPOCHS):
         if n_of_sent % 100 == 0:
             print('Epoch [{}/{}], Sent [{}/{}], Loss: {:.4f}' 
                    .format(epoch+1, NUM_EPOCHS, n_of_sent, total_sent, loss.item()))
+            
+#         if n_of_sent > 1000:
+#             break
         
 #         break
         
     # EPOCH 마다 dev에 대한 성능 평가
-
+    
+    torch.save(srl_model, model_path)
         
     f1 = eval_dev(srl_model)
     print('Epoch [{}/{}], F1: {:4f}' 
@@ -564,8 +588,7 @@ for epoch in range(NUM_EPOCHS):
     end_time = datetime.now()
     print('Duration: {}'.format(end_time - start_time))
     print('')
-    
-    torch.save(srl_model, model_path)
+
     
 #     break
        
