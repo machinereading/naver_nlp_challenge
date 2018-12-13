@@ -46,6 +46,9 @@ if not os.path.exists(model_dir):
 model_path = model_dir+'/model.pt'
 
 dev_sent = 500
+MASKING = False
+ARGINFO = True
+DPINFO = True
 
 
 # In[3]:
@@ -191,8 +194,8 @@ def get_word2vec(morp):
 # In[10]:
 
 
-configuration = {'token_dim': 60,
-                 'feat_dim': 1,
+configuration = {'token_dim': 100,
+                 'feat_dim': 2,
                  'dp_dim': 4,
                  'arg_dim': 4,
                  'lu_pos_dim': 5,
@@ -202,21 +205,30 @@ configuration = {'token_dim': 60,
                  'lstm_depth': 2,
                  'hidden_dim': 64,
                  'position_feature_dim': 5,
-                 'num_epochs': 10,
+                 'num_epochs': 20,
                  'learning_rate': 0.001,
                  'dropout_rate': 0.01,
                  'pretrained_embedding_dim': 300,
                  'model_dir': model_dir,
                  'model_path': model_path,
+                 'masking': MASKING,
+                 'arg_info': ARGINFO
                  }
 print('\n### CONFIGURATION ###\n')
 pprint.pprint(configuration)
 print('')
 
-DPDIM = configuration['dp_dim']
+TOKDIM = configuration['token_dim']
+if DPINFO:
+    DPDIM = configuration['dp_dim']
+else:
+    DPDIM = 0
 ARGDIM = configuration['arg_dim']
 LSTMINPDIM = configuration['lstm_input_dim']
-FEATDIM = configuration['feat_dim']
+if ARGINFO:
+    FEATDIM = configuration['feat_dim']
+else:
+    FEATDIM = 1
 HIDDENDIM = configuration['hidden_dim']
 LSTMDEPTH = configuration['lstm_depth']
 DROPOUT_RATE = configuration['dropout_rate']
@@ -237,7 +249,7 @@ def get_pred_idxs(conll):
     preds = [0 for i in range(len(conll))]
     for i in range(len(conll)):
         tok = conll[i]
-        if tok[10].startswith('V'):
+        if tok[10] == 'VP' or tok[10] == 'VP_MOD' :
             preds = [0 for item in range(len(conll))]
             preds[i] = 1
             result.append(preds)
@@ -253,9 +265,7 @@ def get_arg_idxs(pred_idx, conll):
     for i in range(len(conll)):
         tok = conll[i]
         if int(tok[8]) == pred_idx:
-            
 #             arg_idxs[i] = 1
-            
             arg_pos = tok[-1]
             if arg_pos[:2] == 'NP':
                 arg_idxs[i] = 1
@@ -266,23 +276,27 @@ def get_arg_idxs(pred_idx, conll):
 # In[13]:
 
 
-def get_feature(pred_idxs, conll):
-    result = []
-    for i in pred_idxs:
-#         print(i)
-        features = []
-        for j in range(len(i)):
-            pred_idx = i[j]
-#             if pred_idx == 1:
-#                 arg_idxs = get_arg_idxs(j, conll)
-        for j in range(len(i)):
-            feature = []                
-            feature.append(i[j])
-#             feature.append(arg_idxs[j])
-            features.append(feature)                
-        result.append(features)
+def get_feature(pred_idx, conll):
+    feat_vec = []
+    arg_idxs = get_arg_idxs(pred_idx, conll)
+    for i in range(len(conll)):
+#         tok = conll[i]
+        feature = []
+        if pred_idx == i:
+            feature.append(1)
+        else:
+            feature.append(0)
+        if FEATDIM >= 2:
+            feature.append(arg_idxs[i])
+        if FEATDIM == 3:
+            if i >= pred_idx:
+                position = 0
+            else:
+                position = 1
+            feature.append(position)
+        feat_vec.append(feature)                
         
-    return result
+    return feat_vec
 
 
 # In[14]:
@@ -326,7 +340,7 @@ def get_sentence_vec(tokens, conll):
 
 # # dev eval
 
-# In[23]:
+# In[17]:
 
 
 def get_labels_by_tensor(t):
@@ -361,36 +375,53 @@ def eval_dev(my_model):
         with open(gold_to_see) as f:
             gold_anno = json.load(f)
 
-        for s_idx in range(len(dev)):      
+        for s_idx in range(len(dev)):
+            
             tokens, args = dev[s_idx][1], dev[s_idx][2]
-            args_in = prepare_sequence(args, arg_to_ix)  
+
+            args_in_all = prepare_sequence(args, arg_to_ix)
 
             conll = read_data.get_nlp_for_trn(s_idx+dev_idx)
             dps = get_dps(conll)
             dp_in = prepare_sequence(dps, dp_to_ix)
 
             pred_idxs = get_pred_idxs(conll)
-            features = get_feature(pred_idxs, conll)
-            features = torch.tensor(features).type(torch.cuda.FloatTensor)
-
+#             features = get_feature(pred_idxs, conll)
+#             features = torch.tensor(features).type(torch.cuda.FloatTensor)
+            
             pred = ['-' for i in range(len(args))]
 
             for i in range(len(pred_idxs)):
-                feat_vectors = features[i]            
-                input_sent = get_sentence_vec(tokens, conll)       
 
                 pred_seq = pred_idxs[i]
                 for j in range(len(pred_seq)):
                     p = pred_seq[j]
                     if p == 1:
                         pred_idx = j
-                arg_idxs = get_arg_idxs(pred_idx, conll)
+                        
+                feature = get_feature(pred_idx, conll)
+                feat_vector = torch.tensor(feature).type(torch.cuda.FloatTensor)           
+                input_sent = get_sentence_vec(tokens, conll)
+                arg_idxs = get_arg_idxs(pred_idx, conll)            
+                args_in = torch.zeros(len(arg_idxs))
+
+                for idx in range(len(arg_idxs)):
+                    a = arg_idxs[idx]
+                    if a == 1:
+                        args_in[idx] = args_in_all[idx]
+                    else:
+                        args_in[idx] = 17
+
+                args_in = args_in.type(torch.cuda.LongTensor)
+                
                 mask = torch.tensor(arg_idxs).cuda()
                 mask = mask.float()
 
-                tag_scores = srl_model(input_sent, dp_in, feat_vectors, mask)
-                labels, score = get_labels_by_tensor(tag_scores)
+                tag_scores = my_model(input_sent, pred_idx, dp_in, feat_vector, mask)
                 
+#                 print(tag_scores)
+                labels, score = get_labels_by_tensor(tag_scores)
+
                 for idx in range(len(labels)):
                     if arg_idxs[idx] == 1:
                         label = labels[idx]
@@ -402,8 +433,6 @@ def eval_dev(my_model):
                     else:
                         if pred[idx] == '-':
                             pred[idx] = label
-                        
-#                         pred[idx] = label
 
             pred_result.write(str(pred)+'\n')
             
@@ -411,8 +440,10 @@ def eval_dev(my_model):
             annotation.append(tokens)
             annotation.append(gold_anno[s_idx])
             annotation.append(pred)
-
             result.append(annotation)
+            
+#             print(gold_anno[s_idx])
+#             print(pred)
      
     
     with open(model_dir+'/dev-result.tosee','w') as f:
@@ -425,16 +456,22 @@ def eval_dev(my_model):
     with open(gold_file,'r') as f:
         gold = json.load(f)
         
-    
-    pred = eval_srl.read_prediction(pred_file)
+    pred = eval_srl.read_prediction(pred_file)    
     f1 = eval_srl.evaluate_from_list(pred, gold)
       
     return f1
 
 
+# In[18]:
+
+
+# f1 = eval_dev(srl_model)
+# print(f1)
+
+
 # # Model
 
-# In[18]:
+# In[27]:
 
 
 class LSTMTagger(nn.Module):
@@ -442,68 +479,88 @@ class LSTMTagger(nn.Module):
     def __init__(self, tagset_size):
         super(LSTMTagger, self).__init__()
         
-        self.dp_embeddings = nn.Embedding(DP_VOCAB_SIZE, DPDIM)
+        if DPINFO:
+            self.dp_embeddings = nn.Embedding(DP_VOCAB_SIZE, DPDIM)
         
-        #LSTM layer        
-#         self.lstm_morp = nn.LSTM(LSTMINPDIM, HIDDENDIM//2, bidirectional=True, num_layers=LSTMDEPTH, dropout=DROPOUT_RATE)
-#         self.hidden_lstm_morp = self.init_hidden_lstm_morp()
-        
-        self.lstm_tok = nn.LSTM(LSTMINPDIM+DPDIM+FEATDIM, HIDDENDIM//2, bidirectional=True, num_layers=LSTMDEPTH, dropout=DROPOUT_RATE)
+        self.lstm_tok = nn.LSTM(LSTMINPDIM+TOKDIM+DPDIM+FEATDIM, HIDDENDIM//2, bidirectional=True, num_layers=LSTMDEPTH, dropout=DROPOUT_RATE)
         self.hidden_lstm_tok = self.init_hidden_lstm_tok()
         
         # Linear
         self.hidden2tag = nn.Linear(HIDDENDIM, tagset_size)
-              
-
-#     def init_hidden_lstm_morp(self):
-#         return (torch.zeros(4, 1, HIDDENDIM//2).cuda(),
-#             torch.zeros(4, 1, HIDDENDIM//2).cuda())
     
     def init_hidden_lstm_tok(self):
         return (torch.zeros(4, 1, HIDDENDIM//2).cuda(),
             torch.zeros(4, 1, HIDDENDIM//2).cuda())
     
-    def forward(self, input_sent, dp_in, feat_vectors, mask):
+    def forward(self, input_sent, pred_idx, dp_in, feat_vector, mask):
         
-        dp_embs = self.dp_embeddings(dp_in)
+        if DPINFO:
+            dp_embs = self.dp_embeddings(dp_in)
         
 #         LSTM layer 1 (subunit to token)
         tok_vectors = []
+    
+        pred_vec = torch.zeros(100).cuda()
+        for morp in input_sent[pred_idx]:
+            pred_vec += get_word2vec(morp)
+    
         for morps in input_sent:
-            wes = []
             we = torch.zeros(100).cuda()
             for morp in morps:
                 we += get_word2vec(morp)
+            we = torch.cat( (we, pred_vec) )
             tok_vectors.append(we)
 
         tok_vec = torch.stack(tok_vectors)
-        tok_vec = tok_vec.view(len(tok_vec), -1)    
+        tok_vec = tok_vec.view(len(tok_vec), -1)
         
 #         LSTM layer
-        input_embs = torch.cat( (tok_vec, dp_embs, feat_vectors), 1)
+        if DPINFO:
+            input_embs = torch.cat( (tok_vec, dp_embs, feat_vector), 1)
+        else:
+            input_embs = torch.cat( (tok_vec, feat_vector), 1)
         input_embs_2 = input_embs.view(len(input_embs), 1, -1)
 
         lstm_out_tok, self.hidden_lstm_tok = self.lstm_tok(
             input_embs_2, self.hidden_lstm_tok)
         
+#         lstm_out_tok = F.relu(lstm_out_tok)
+        
         # Linear
         tag_space = self.hidden2tag(lstm_out_tok.view(len(input_embs_2),-1))  
 
-        for t_idx in range(len(tag_space)):
-            t = tag_space[t_idx]
-            m = mask[t_idx]
-            if m > 0:
-                pass
-            else:
-                t[-1] = 1
+        if MASKING:
+            for t_idx in range(len(tag_space)):
+                t = tag_space[t_idx]
+                m = mask[t_idx]
+                if m > 0:
+#                     if t[-1] >= 0.1:
+                    t[-1] = -1
+#             for t_idx in range(len(tag_space)):
+#                 t = tag_space[t_idx]
+#                 m = mask[t_idx]
+#                 if m > 0:
+#                     pass
+#                 else:
+#                     t[-1] = 1       
         
-        tag_space = F.relu(tag_space)        
-        softmax = nn.Softmax(dim=1)
-        tag_scores = softmax(tag_space)
-        return tag_scores       
+#         tag_space = F.relu(tag_space)
+
+#         softmax = nn.Softmax(dim=1)
+#         tag_scores = softmax(tag_space)
+
+#         tag_scores = F.relu(tag_space)
 
 
-# In[19]:
+#         print(tag_space)
+#         softmax = nn.Softmax(dim=1)
+#         tag_scores = softmax(tag_space)
+        
+#         return tag_scores       
+        return tag_space
+
+
+# In[20]:
 
 
 srl_model = LSTMTagger(ARG_VOCAB_SIZE)
@@ -524,36 +581,49 @@ for epoch in range(NUM_EPOCHS):
     for s_idx in range(len(trn)):
         
         tokens, args = trn[s_idx][1], trn[s_idx][2]
+        
+        
+#         print(tokens)
+#         print(args)
 
-        args_in = prepare_sequence(args, arg_to_ix)  
+        args_in_all = prepare_sequence(args, arg_to_ix)
 
         conll = read_data.get_nlp_for_trn(s_idx)
         dps = get_dps(conll)
         dp_in = prepare_sequence(dps, dp_to_ix)
 
         pred_idxs = get_pred_idxs(conll)
-        features = get_feature(pred_idxs, conll)
-        features = torch.tensor(features).type(torch.cuda.FloatTensor)  
 
-        for i in range(len(pred_idxs)):
-            feat_vectors = features[i]            
-            input_sent = get_sentence_vec(tokens, conll)       
+        for i in range(len(pred_idxs)):      
             
             pred_seq = pred_idxs[i]
             for j in range(len(pred_seq)):
                 p = pred_seq[j]
                 if p == 1:
                     pred_idx = j
-            arg_idxs = get_arg_idxs(pred_idx, conll)
+                    
+            feature = get_feature(pred_idx, conll)
+            feat_vector = torch.tensor(feature).type(torch.cuda.FloatTensor)           
+            input_sent = get_sentence_vec(tokens, conll) 
+            arg_idxs = get_arg_idxs(pred_idx, conll)            
+            args_in = torch.zeros(len(arg_idxs))
+            
+            for idx in range(len(arg_idxs)):
+                a = arg_idxs[idx]
+                if a == 1:
+                    args_in[idx] = args_in_all[idx]
+                else:
+                    args_in[idx] = 17
+            args_in = args_in.type(torch.cuda.LongTensor)
+            
             mask = torch.tensor(arg_idxs).cuda()
             mask = mask.float()
             
             srl_model.zero_grad()         
             srl_model.hidden_lstm_tok = srl_model.init_hidden_lstm_tok()
 
-            tag_scores = srl_model(input_sent, dp_in, feat_vectors, mask)
-            loss = loss_function(tag_scores, args_in)
-            
+            tag_scores = srl_model(input_sent, pred_idx, dp_in, feat_vector, mask)
+            loss = loss_function(tag_scores, args_in)            
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(srl_model.parameters(), 0.25)
@@ -565,14 +635,14 @@ for epoch in range(NUM_EPOCHS):
             print('Epoch [{}/{}], Sent [{}/{}], Loss: {:.4f}' 
                    .format(epoch+1, NUM_EPOCHS, n_of_sent, total_sent, loss.item()))
 
-#         if n_of_sent > 1000:
+#         if n_of_sent >= 500:
 #             break
             
 #         break
         
     # EPOCH 마다 dev에 대한 성능 평가
 
-#     torch.save(srl_model, model_path)
+    torch.save(srl_model, model_path)
     
     f1 = eval_dev(srl_model)
     print('Epoch [{}/{}], F1: {:4f}' 
@@ -585,13 +655,26 @@ for epoch in range(NUM_EPOCHS):
     print('Duration: {}'.format(end_time - start_time))
     print('')
     
-
-    
 #     break
        
 torch.save(srl_model, model_path)
 print('')
 print('### YOUR MODEL IS SAVED TO', model_path, '###')
+
+
+# In[25]:
+
+
+d = torch.rand(2,2)
+softmax = nn.Softmax(dim=0)
+d0 = softmax(d)
+
+softmax = nn.Softmax(dim=1)
+d1 = softmax(d)
+
+print(d)
+print(d0)
+print(d1)
 
 
 # In[ ]:
