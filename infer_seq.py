@@ -300,7 +300,7 @@ def get_labels_by_tensor(t):
 
 # # Infer
 
-# In[13]:
+# In[34]:
 
 
 def infer(data, my_model):
@@ -326,13 +326,14 @@ def infer(data, my_model):
             
             input_sent = get_sentence_vec(tokens, conll)       
             
-            tag_scores = my_model(input_sent, dp_in, feat_vector)            
+            tag_scores = my_model(input_sent, dp_in, feat_vector)
+            
             labels, score = get_labels_by_tensor(tag_scores)                            
             result.append(labels)
     return result
 
 
-# In[18]:
+# In[35]:
 
 
 def test():
@@ -356,7 +357,7 @@ def test():
         sent_list.append(tok_str)
         sent_list.append(tok_arg)
         dummy_data.append(sent_list)
-    dummy_data = dummy_data[:5]
+    dummy_data = dummy_data[:1]
     
     print('#input')
     print(dummy_data)
@@ -367,5 +368,5 @@ def test():
     
     return result
         
-result = test()
+# result = test()
 
