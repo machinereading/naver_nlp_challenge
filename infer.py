@@ -208,5 +208,5 @@ def example():
     f1 = eval_srl.evaluate_from_list(predict, gold)
     print('\nf1:', f1)
     
-example()
+# example()
 
