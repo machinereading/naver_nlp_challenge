@@ -179,7 +179,7 @@ def infer(data, model):
 
 # # IO example
 
-# In[10]:
+# In[9]:
 
 
 def example():
